@@ -64,11 +64,15 @@ private fun JSONObject.number(key: String): Double {
     val raw = get(key)
     return when (raw) {
         is Number -> raw.toDouble()
-        is String -> raw.trim()
-            .replace("+", "")
-            .replace(".", "")    // separador de miles alemán, fuera
-            .replace(",", ".")   // coma decimal -> punto
-            .toDouble()
+        is String -> {
+            val s = raw.trim().replace("+", "")
+            val normalizado = if (s.contains(",")) {
+                s.replace(".", "").replace(",", ".")
+            } else {
+                s
+            }
+            normalizado.toDouble()
+        }
         else -> throw JSONException("Campo '$key' no numérico: $raw")
     }
 }
