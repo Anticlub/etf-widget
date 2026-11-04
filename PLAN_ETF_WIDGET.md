@@ -19,9 +19,12 @@ Uso personal (un compañero) + proyecto de portfolio en GitHub.
 | Fondo | iShares Core S&P 500 UCITS ETF (Acc) |
 | ISIN | `IE00B5BMR087` |
 | Ticker | `SXR8` (Xetra, en EUR) |
-| Símbolo para la API | `SXR8.DE` |
+| Clave para la API | el **ISIN** (Tradegate indexa por ISIN) |
 
-El sufijo indica la bolsa: `.DE` Xetra, `.AS` Amsterdam, `.L` Londres, `.MI` Milán.
+La fuente de datos es **Tradegate**, que es la bolsa que usan Trade Republic, Scalable y
+justETF, y la que ve el compañero en su banco. Se consulta por ISIN y da **tiempo real**
+durante su horario (L-V 08:00–22:00, hora de Alemania), que es más amplio que el de Xetra
+(9:00–17:30) porque sigue negociando mientras EE.UU. está abierto.
 
 ### Qué muestra el widget
 
@@ -45,9 +48,14 @@ Elementos comunes:
 
 ### Limitación asumida
 
-No es tiempo real. Android limita el trabajo en segundo plano: el refresco automático será
-**cada 15 min** (el mínimo de WorkManager) más el botón manual. Los datos gratuitos ya van
-con ~15 min de retraso, así que para un ETF de largo plazo es suficiente.
+Los **datos sí son tiempo real** (Tradegate), pero el **refresco automático** del widget no:
+Android limita el trabajo en segundo plano, así que el widget se actualiza solo **cada 15 min**
+(el mínimo de WorkManager). El botón ↻ fuerza una lectura en tiempo real al momento. Para un
+ETF de largo plazo, 15 min de cadencia automática es de sobra.
+
+> Nota: Tradegate es un endpoint **no oficial** (ya cambió de dominio `.de`→`.com` durante el
+> desarrollo) y devuelve algunos números como texto con coma alemana (`"740,60"`). El parseo lo
+> maneja a prueba de fallos. Por eso el proveedor va detrás de una interfaz: si rompe, se cambia.
 
 ---
 
@@ -63,28 +71,29 @@ con ~15 min de retraso, así que para un ETF de largo plazo es suficiente.
 | Refresco periódico | WorkManager |
 | Persistencia | DataStore Preferences |
 | Red | `HttpURLConnection` + `org.json` (sin librerías extra para empezar) |
-| Datos | Endpoint de gráfico de Yahoo Finance (no oficial, sin key) |
+| Datos | **Tradegate** por ISIN (tiempo real, no oficial, sin key); Yahoo Finance como alternativa |
 
 ### Arquitectura
 
 ```
-UI (MainActivity)  ─┐
-Widget (Glance)    ─┼─► QuoteUpdater ─► QuoteRepository (interfaz) ─► YahooQuoteRepository
-Worker (15 min)    ─┘         │
+UI (MainActivity)  ─┐                                          ┌─ TradegateQuoteRepository (real-time)
+Widget (Glance)    ─┼─► QuoteUpdater ─► QuoteRepository (interfaz) ─┤
+Worker (15 min)    ─┘         │                                 └─ YahooQuoteRepository (alternativa)
                               └─► QuoteStore (DataStore) ◄── el widget pinta desde aquí
 ```
 
 Reglas:
 - **El widget nunca hace peticiones de red al pintarse.** Lee lo último guardado en DataStore.
 - Quien actualiza (worker, botón ↻ o app) hace: *pedir → guardar → `updateAll()` del widget*.
-- El proveedor de datos va detrás de una **interfaz**, para poder cambiarlo si Yahoo falla.
+- El proveedor de datos va detrás de una **interfaz**, para poder cambiarlo si la fuente falla.
 
 ### Paquetes
 
 ```
-dev.<tunombre>.etfwidget
+com.anticlub.etfwidget
 ├── MainActivity.kt
-├── data/      Quote, QuoteRepository, YahooQuoteRepository, QuoteStore, QuoteUpdater
+├── data/      Quote, QuoteRepository, TradegateQuoteRepository, YahooQuoteRepository,
+│              QuoteStore, QuoteUpdater
 ├── widget/    QuoteWidget, QuoteWidgetReceiver, RefreshAction
 └── work/      QuoteWorker
 ```
@@ -114,30 +123,32 @@ Cada fase tiene: objetivo, pasos, pistas, cómo probarlo y commit.
 
 ---
 
-### Fase 1 · Obtener la cotización
+### Fase 1 · Obtener la cotización ✅
 
-**Objetivo:** pedir el precio de `SXR8.DE` y verlo en pantalla o en Logcat.
+**Objetivo:** pedir el precio en tiempo real por ISIN y verlo en pantalla.
 
-- [ ] Añadir el permiso `INTERNET` al manifest.
-- [ ] Crear `data class Quote(symbol, name, currency, price, previousClose, marketTime, isMarketOpen)`
+- [x] Añadir el permiso `INTERNET` al manifest.
+- [x] Crear `data class Quote(symbol, name, currency, price, previousClose, marketTime, isMarketOpen)`
       con propiedades calculadas `change` y `changePct`.
-- [ ] Crear `interface QuoteRepository { suspend fun fetch(symbol: String): Quote }`.
-- [ ] Implementar `YahooQuoteRepository` en `Dispatchers.IO`.
+- [x] Crear `interface QuoteRepository { suspend fun fetch(symbol: String): Quote }`.
+- [x] Implementar `TradegateQuoteRepository` en `Dispatchers.IO` (fuente principal, tiempo real).
+- [x] Dejar `YahooQuoteRepository` como implementación alternativa tras la misma interfaz.
 
-**Pistas:**
-- URL: `https://query1.finance.yahoo.com/v8/finance/chart/SXR8.DE?interval=5m&range=1d`
-- Pon una cabecera `User-Agent` (p. ej. `Mozilla/5.0`) o puede responder con error.
-- Prueba antes la URL en el navegador para ver el JSON.
-- Campos útiles dentro de `chart.result[0].meta`:
-  - `regularMarketPrice` → precio
-  - `chartPreviousClose` → cierre anterior (para el % del día)
-  - `currency`, `symbol`, `shortName` / `longName`
-  - `regularMarketTime` → epoch en segundos
-  - `currentTradingPeriod.regular.start` / `.end` → para saber si el mercado está abierto
-- Usa `runCatching` para no reventar sin red.
+**Pistas (lo que acabó funcionando):**
+- URL Tradegate: `https://www.tradegatebsx.com/refresh.php?isin=IE00B5BMR087`
+  (el viejo `www.tradegate.de/refresh.php` redirige aquí con un 301).
+- Cabecera `User-Agent` (`Mozilla/5.0`) para que responda.
+- Campos del JSON: `last` → precio, `close` → cierre anterior, `delta` → % ya calculado.
+  **Trampa:** el tipo de los números es inconsistente — a veces `740.66` (número) y a veces
+  `"740,60"` (texto con coma alemana). Parsear con una función que acepte ambos
+  (`when (raw) { is Number -> ...; is String -> replace(",", ".") ... }`), nunca `getDouble` a secas.
+- Tradegate no manda nombre ni horario: el nombre va fijo y el "abierto/cerrado" se calcula
+  con `java.time` sobre `Europe/Berlin` (L-V 08:00–22:00).
+- El parseo va en una función pura (`parseTradegateQuote`) para poder testearlo luego.
 
-**Probar:** un botón temporal que llame a `fetch` y muestre el precio. Compáralo con el de tu bróker.
-**Commit:** `feat: repositorio de cotizaciones con Yahoo Finance`
+**Probar:** botón temporal que llama a `fetch("IE00B5BMR087")` y muestra el precio. Coincide con
+el banco del compañero salvo el baile normal de céntimos del tiempo real.
+**Commit:** `feat: cotización en tiempo real desde Tradegate`
 
 ---
 
