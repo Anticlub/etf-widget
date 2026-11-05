@@ -7,11 +7,16 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -19,11 +24,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.anticlub.etfwidget.data.Quote
 import com.anticlub.etfwidget.data.QuoteStore
 import com.anticlub.etfwidget.data.TradegateQuoteRepository
-import com.anticlub.etfwidget.data.YahooQuoteRepository
 import com.anticlub.etfwidget.ui.theme.ETFWidgetTheme
 import kotlinx.coroutines.launch
 
@@ -34,7 +38,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             ETFWidgetTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    QuoteTester(modifier = Modifier.padding(innerPadding))
+                    ConfigScreen(modifier = Modifier.padding(innerPadding))
                 }
             }
         }
@@ -42,61 +46,75 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        modifier = modifier
-    )
-}
-
-@Preview(showBackground = true)
-@Composable
-fun GreetingPreview() {
-    ETFWidgetTheme {
-        Greeting("Android")
-    }
-}
-
-@Composable
-fun QuoteTester(modifier: Modifier = Modifier) {
+fun ConfigScreen(modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val repository = remember { TradegateQuoteRepository() }
     val store = remember { QuoteStore(context) }
-    var result by remember { mutableStateOf("Pulsa un botón") }
+
+    var isin by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(false) }
+    var quote by remember { mutableStateOf<Quote?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    // Al abrir la pantalla, rellenamos el campo con el ticker ya guardado.
+    LaunchedEffect(Unit) {
+        isin = store.ticker()
+    }
 
     Column(
-        modifier = modifier.padding(24.dp),
+        modifier = modifier
+            .fillMaxSize()
+            .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Button(onClick = {
-            scope.launch {
-                result = try {
-                    val q = repository.fetch(store.ticker())   // usa el ticker guardado
-                    store.saveQuote(q)                         // <-- GUARDA en disco
-                    "RED:\n${q.name}\n${q.price} ${q.currency}\n${q.changePct}%"
-                } catch (e: Exception) {
-                    store.saveError(e.message ?: "error")
-                    "Error: ${e.message}"
+        Text("ETF Widget", style = MaterialTheme.typography.headlineMedium)
+        Text(
+            "Introduce el ISIN del ETF (p. ej. IE00B5BMR087, el iShares Core S&P 500).",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+
+        OutlinedTextField(
+            value = isin,
+            onValueChange = { isin = it.trim() },
+            label = { Text("ISIN") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        Button(
+            onClick = {
+                scope.launch {
+                    loading = true
+                    error = null
+                    try {
+                        store.setTicker(isin)
+                        val q = repository.fetch(isin)
+                        store.saveQuote(q)
+                        quote = q
+                    } catch (e: Exception) {
+                        error = e.message
+                        quote = null
+                    } finally {
+                        loading = false
+                    }
                 }
-            }
-        }) {
-            Text("Cargar (red)")
+            },
+            enabled = isin.isNotBlank() && !loading,
+        ) {
+            Text("Guardar y probar")
         }
 
-        Button(onClick = {
-            scope.launch {
-                val q = store.lastQuote()                      // <-- LEE de disco, sin red
-                result = if (q != null) {
-                    "GUARDADO (sin red):\n${q.name}\n${q.price} ${q.currency}\n${q.changePct}%"
-                } else {
-                    "No hay nada guardado todavía"
-                }
+        when {
+            loading -> CircularProgressIndicator()
+            error != null -> Text("Error: $error", color = MaterialTheme.colorScheme.error)
+            quote != null -> {
+                val q = quote!!
+                Text(q.name, style = MaterialTheme.typography.titleMedium)
+                Text("${q.price} ${q.currency}", style = MaterialTheme.typography.headlineSmall)
+                val signo = if (q.change >= 0) "+" else ""
+                Text("$signo${"%.2f".format(q.changePct)} %")
             }
-        }) {
-            Text("Leer guardado (sin red)")
         }
-
-        Text(result)
     }
 }
