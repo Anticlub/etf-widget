@@ -30,12 +30,14 @@ import com.anticlub.etfwidget.data.QuoteStore
 import com.anticlub.etfwidget.data.QuoteUpdater
 import com.anticlub.etfwidget.data.TradegateQuoteRepository
 import com.anticlub.etfwidget.ui.theme.ETFWidgetTheme
+import com.anticlub.etfwidget.work.QuoteWorker
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        QuoteWorker.schedule(this)   // programa el refresco automático al abrir la app
         setContent {
             ETFWidgetTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
