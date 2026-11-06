@@ -25,11 +25,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
-import androidx.glance.appwidget.GlanceAppWidgetManager
 import com.anticlub.etfwidget.data.QuoteStore
 import com.anticlub.etfwidget.data.QuoteUpdater
 import com.anticlub.etfwidget.ui.theme.ETFWidgetTheme
-import com.anticlub.etfwidget.widget.QuoteWidget
+import com.anticlub.etfwidget.work.QuoteWorker
 import kotlinx.coroutines.launch
 
 // Pantalla que Android abre al colocar un widget: elige el ISIN de ESE widget.
@@ -67,14 +66,9 @@ class ConfigureActivity : ComponentActivity() {
         lifecycleScope.launch {
             val ctx = applicationContext
             QuoteStore(ctx).setWidgetIsin(appWidgetId, isin)   // este widget muestra este ISIN
-
-            // Trae ya su cotización y píntalo. Si algo falla, no pasa nada: el update del
-            // sistema y el worker lo rellenarán; lo importante es terminar y añadir el widget.
-            runCatching {
-                QuoteUpdater.refreshOne(ctx, isin)
-                val glanceId = GlanceAppWidgetManager(ctx).getGlanceIdBy(appWidgetId)
-                QuoteWidget().update(ctx, glanceId)
-            }
+            runCatching { QuoteUpdater.refreshOne(ctx, isin) }  // guarda ya su cotización
+            // Repinta de forma fiable una vez el widget está enlazado (unos segundos después).
+            QuoteWorker.runOnce(ctx)
 
             setResult(
                 Activity.RESULT_OK,
