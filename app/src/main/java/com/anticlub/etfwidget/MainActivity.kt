@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.anticlub.etfwidget.data.Quote
 import com.anticlub.etfwidget.data.QuoteStore
+import com.anticlub.etfwidget.data.QuoteUpdater
 import com.anticlub.etfwidget.data.TradegateQuoteRepository
 import com.anticlub.etfwidget.ui.theme.ETFWidgetTheme
 import kotlinx.coroutines.launch
@@ -87,17 +88,11 @@ fun ConfigScreen(modifier: Modifier = Modifier) {
                 scope.launch {
                     loading = true
                     error = null
-                    try {
-                        store.setTicker(isin)
-                        val q = repository.fetch(isin)
-                        store.saveQuote(q)
-                        quote = q
-                    } catch (e: Exception) {
-                        error = e.message
-                        quote = null
-                    } finally {
-                        loading = false
-                    }
+                    store.setTicker(isin)
+                    QuoteUpdater.refresh(context)   // pide, guarda Y repinta el widget
+                    quote = store.lastQuote()       // leemos de vuelta para mostrarlo en la pantalla
+                    error = store.lastError()
+                    loading = false
                 }
             },
             enabled = isin.isNotBlank() && !loading,
