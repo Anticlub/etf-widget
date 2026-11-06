@@ -47,6 +47,7 @@ class QuoteWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val store = QuoteStore(context)
         val quote = store.lastQuote()          // lee lo último guardado, sin red
+        val error = store.lastError()          // si la última actualización falló
 
         // La sparkline se dibuja aquí (en segundo plano), no en la UI.
         val sparkline = quote?.intraday
@@ -58,13 +59,13 @@ class QuoteWidget : GlanceAppWidget() {
             }
 
         provideContent {
-            WidgetContent(quote, sparkline, LocalSize.current)
+            WidgetContent(quote, error, sparkline, LocalSize.current)
         }
     }
 
     @SuppressLint("RestrictedApi")
     @Composable
-    private fun WidgetContent(quote: Quote?, sparkline: Bitmap?, size: DpSize) {
+    private fun WidgetContent(quote: Quote?, error: String?, sparkline: Bitmap?, size: DpSize) {
         GlanceTheme {   // da colores que se adaptan a claro/oscuro
             Column(
                 modifier = GlanceModifier
@@ -87,6 +88,19 @@ class QuoteWidget : GlanceAppWidget() {
                         modifier = GlanceModifier.defaultWeight(),
                         style = TextStyle(fontSize = 12.sp, color = GlanceTheme.colors.onSurfaceVariant),
                     )
+                    // Aviso de estado: sin red, o mercado cerrado
+                    val status = when {
+                        error != null -> "Sin red"
+                        quote != null && !quote.isMarketOpen -> "Cerrado"
+                        else -> null
+                    }
+                    if (status != null) {
+                        Text(
+                            status,
+                            modifier = GlanceModifier.padding(end = 6.dp),
+                            style = TextStyle(fontSize = 10.sp, color = GlanceTheme.colors.onSurfaceVariant),
+                        )
+                    }
                     Text(
                         "↻",
                         modifier = GlanceModifier.clickable(actionRunCallback<RefreshAction>()),
