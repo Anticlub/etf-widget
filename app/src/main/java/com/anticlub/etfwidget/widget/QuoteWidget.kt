@@ -87,8 +87,9 @@ class QuoteWidget : GlanceAppWidget() {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        quote?.symbol ?: "ETF",
+                        quote?.name?.takeIf { it.isNotBlank() } ?: quote?.symbol ?: "ETF",
                         modifier = GlanceModifier.defaultWeight(),
+                        maxLines = 1,
                         style = TextStyle(fontSize = 12.sp, color = GlanceTheme.colors.onSurfaceVariant),
                     )
                     // Aviso de estado: sin red, o mercado cerrado
