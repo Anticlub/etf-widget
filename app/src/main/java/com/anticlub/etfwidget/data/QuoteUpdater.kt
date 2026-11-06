@@ -1,27 +1,45 @@
 package com.anticlub.etfwidget.data
 
 import android.content.Context
+import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.updateAll
 import com.anticlub.etfwidget.widget.QuoteWidget
 
 object QuoteUpdater {
-    private val repository: QuoteRepository = TradegateQuoteRepository()
+    private val tradegate: QuoteRepository = TradegateQuoteRepository()
     private val yahoo = YahooQuoteRepository()
 
-    // Símbolo de Yahoo para la serie de la sparkline (Tradegate no da la serie).
-    // Xetra (.DE) porque es líquida y sí trae barras intradía de 5 min; Stuttgart (.SG) no.
-    private const val SPARKLINE_SYMBOL = "SXR8.DE"
-
+    // Refresca todos los ISIN que haya en pantalla (uno por cada widget, sin repetir).
     suspend fun refresh(context: Context) {
         val store = QuoteStore(context)
+        val manager = GlanceAppWidgetManager(context)
+        val isins = manager.getGlanceIds(QuoteWidget::class.java)
+            .mapNotNull { store.widgetIsin(manager.getAppWidgetId(it)) }
+            .distinct()
+
+        for (isin in isins) refreshOne(store, isin)
+        QuoteWidget().updateAll(context)
+    }
+
+    // Refresca un ISIN concreto (lo usa la pantalla de configuración al añadir un widget).
+    suspend fun refreshOne(context: Context, isin: String) = refreshOne(QuoteStore(context), isin)
+
+    private suspend fun refreshOne(store: QuoteStore, isin: String) {
         try {
-            val quote = repository.fetch(store.ticker())            // precio en tiempo real
-            val series = runCatching { yahoo.intraday(SPARKLINE_SYMBOL) }
-                .getOrDefault(emptyList())                          // si falla, sin gráfica
-            store.saveQuote(quote.copy(intraday = series))
+            val quote = tradegate.fetch(isin)                      // precio en tiempo real
+            val resolved = runCatching { yahoo.resolve(isin) }.getOrNull()  // (símbolo, nombre)
+            val series = resolved
+                ?.let { runCatching { yahoo.intraday(it.first) }.getOrDefault(emptyList()) }
+                ?: emptyList()
+            store.saveQuote(
+                isin,
+                quote.copy(
+                    name = resolved?.second ?: quote.name,   // nombre real si Yahoo lo da
+                    intraday = series,                       // serie para la sparkline
+                ),
+            )
         } catch (e: Exception) {
-            store.saveError(e.message ?: "Error de red")
+            store.saveError(isin, e.message ?: "Error de red")
         }
-        QuoteWidget().updateAll(context)   // repinta todos los widgets
     }
 }

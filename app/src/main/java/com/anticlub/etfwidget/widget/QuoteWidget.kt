@@ -17,6 +17,7 @@ import androidx.glance.LocalSize
 import androidx.glance.action.actionStartActivity
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
+import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.appWidgetBackground
@@ -46,8 +47,10 @@ class QuoteWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val store = QuoteStore(context)
-        val quote = store.lastQuote()          // lee lo último guardado, sin red
-        val error = store.lastError()          // si la última actualización falló
+        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(id)
+        val isin = store.widgetIsin(appWidgetId)        // qué ETF muestra ESTE widget
+        val quote = isin?.let { store.lastQuote(it) }   // su cotización, sin red
+        val error = isin?.let { store.lastError(it) }   // si su última actualización falló
 
         // La sparkline se dibuja aquí (en segundo plano), no en la UI.
         val sparkline = quote?.intraday

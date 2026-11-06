@@ -1,6 +1,8 @@
 package com.anticlub.etfwidget.data
 
 import android.content.Context
+import androidx.datastore.preferences.core.MutablePreferences
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
@@ -12,45 +14,47 @@ import kotlinx.coroutines.flow.first
 // Un único DataStore para toda la app, "colgado" del Context. Va a nivel de archivo a propósito.
 private val Context.dataStore by preferencesDataStore(name = "etf_prefs")
 
+/**
+ * Almacén en local. Dos cosas, por claves separadas:
+ *  - qué ISIN muestra cada widget (por id de widget)
+ *  - la última cotización de cada ISIN (compartida por los widgets que muestren ese ISIN)
+ */
 class QuoteStore(private val context: Context) {
 
-    // --- Ticker (ISIN) elegido ---
-    suspend fun ticker(): String {
-        val prefs = context.dataStore.data.first()
-        return prefs[TICKER] ?: DEFAULT_ISIN
+    // --- ISIN elegido por cada widget ---
+    suspend fun widgetIsin(appWidgetId: Int): String? =
+        read { it[stringPreferencesKey("isin_$appWidgetId")] }
+
+    suspend fun setWidgetIsin(appWidgetId: Int, isin: String) =
+        write { it[stringPreferencesKey("isin_$appWidgetId")] = isin }
+
+    suspend fun removeWidget(appWidgetId: Int) =
+        write { it.remove(stringPreferencesKey("isin_$appWidgetId")) }
+
+    // --- Última cotización, por ISIN ---
+    suspend fun saveQuote(isin: String, q: Quote) = write { p ->
+        p[ks("symbol", isin)] = q.symbol
+        p[ks("name", isin)] = q.name
+        p[ks("currency", isin)] = q.currency
+        p[kd("price", isin)] = q.price
+        p[kd("prev", isin)] = q.previousClose
+        p[kl("time", isin)] = q.marketTime
+        p[kb("open", isin)] = q.isMarketOpen
+        p[ks("intraday", isin)] = q.intraday.joinToString(",")
+        p.remove(ks("error", isin))   // si hubo éxito, borramos el error anterior
     }
 
-    suspend fun setTicker(isin: String) {
-        context.dataStore.edit { prefs -> prefs[TICKER] = isin }
-    }
-
-    // --- Última cotización ---
-    suspend fun saveQuote(q: Quote) {
-        context.dataStore.edit { prefs ->
-            prefs[SYMBOL] = q.symbol
-            prefs[NAME] = q.name
-            prefs[CURRENCY] = q.currency
-            prefs[PRICE] = q.price
-            prefs[PREV_CLOSE] = q.previousClose
-            prefs[MARKET_TIME] = q.marketTime
-            prefs[IS_OPEN] = q.isMarketOpen
-            prefs[INTRADAY] = q.intraday.joinToString(",")   // serie como "718.1,718.3,..."
-            prefs.remove(ERROR)          // si hubo éxito, borramos el error anterior
-        }
-    }
-
-    suspend fun lastQuote(): Quote? {
-        val prefs = context.dataStore.data.first()
-        val price = prefs[PRICE] ?: return null   // sin precio guardado => no hay cotización
-        return Quote(
-            symbol = prefs[SYMBOL] ?: "",
-            name = prefs[NAME] ?: "",
-            currency = prefs[CURRENCY] ?: "",
+    suspend fun lastQuote(isin: String): Quote? = read { p ->
+        val price = p[kd("price", isin)] ?: return@read null
+        Quote(
+            symbol = p[ks("symbol", isin)] ?: isin,
+            name = p[ks("name", isin)] ?: "",
+            currency = p[ks("currency", isin)] ?: "",
             price = price,
-            previousClose = prefs[PREV_CLOSE] ?: 0.0,
-            marketTime = prefs[MARKET_TIME] ?: 0L,
-            isMarketOpen = prefs[IS_OPEN] ?: false,
-            intraday = prefs[INTRADAY]
+            previousClose = p[kd("prev", isin)] ?: 0.0,
+            marketTime = p[kl("time", isin)] ?: 0L,
+            isMarketOpen = p[kb("open", isin)] ?: false,
+            intraday = p[ks("intraday", isin)]
                 ?.takeIf { it.isNotBlank() }
                 ?.split(",")
                 ?.mapNotNull { it.toDoubleOrNull() }
@@ -58,27 +62,26 @@ class QuoteStore(private val context: Context) {
         )
     }
 
-    // --- Último error (para mostrar "sin conexión" sin perder el dato viejo) ---
-    suspend fun saveError(message: String) {
-        context.dataStore.edit { prefs -> prefs[ERROR] = message }
-    }
+    suspend fun saveError(isin: String, message: String) =
+        write { it[ks("error", isin)] = message }
 
-    suspend fun lastError(): String? {
-        return context.dataStore.data.first()[ERROR]
+    suspend fun lastError(isin: String): String? =
+        read { it[ks("error", isin)] }
+
+    private suspend fun <T> read(block: (Preferences) -> T): T =
+        block(context.dataStore.data.first())
+
+    private suspend fun write(block: (MutablePreferences) -> Unit) {
+        context.dataStore.edit(block)
     }
 
     companion object {
         const val DEFAULT_ISIN = "IE00B5BMR087"
 
-        private val TICKER = stringPreferencesKey("ticker")
-        private val SYMBOL = stringPreferencesKey("symbol")
-        private val NAME = stringPreferencesKey("name")
-        private val CURRENCY = stringPreferencesKey("currency")
-        private val PRICE = doublePreferencesKey("price")
-        private val PREV_CLOSE = doublePreferencesKey("prev_close")
-        private val MARKET_TIME = longPreferencesKey("market_time")
-        private val IS_OPEN = booleanPreferencesKey("is_open")
-        private val INTRADAY = stringPreferencesKey("intraday")
-        private val ERROR = stringPreferencesKey("error")
+        // Claves "campo_ISIN" con el tipo correcto.
+        private fun ks(field: String, isin: String) = stringPreferencesKey("${field}_$isin")
+        private fun kd(field: String, isin: String) = doublePreferencesKey("${field}_$isin")
+        private fun kl(field: String, isin: String) = longPreferencesKey("${field}_$isin")
+        private fun kb(field: String, isin: String) = booleanPreferencesKey("${field}_$isin")
     }
 }
