@@ -1,5 +1,6 @@
 package com.anticlub.etfwidget.widget
 
+import android.annotation.SuppressLint
 import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
@@ -19,6 +20,12 @@ import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import com.anticlub.etfwidget.data.Quote
 import com.anticlub.etfwidget.data.QuoteStore
+import androidx.glance.action.clickable
+import androidx.glance.appwidget.action.actionRunCallback
+import androidx.glance.action.actionStartActivity
+import com.anticlub.etfwidget.MainActivity
+import androidx.glance.layout.Row
+import androidx.glance.layout.fillMaxWidth
 
 class QuoteWidget : GlanceAppWidget() {
 
@@ -30,13 +37,34 @@ class QuoteWidget : GlanceAppWidget() {
         }
     }
 
+    @SuppressLint("RestrictedApi")
     @Composable
     private fun WidgetContent(quote: Quote?) {
         Column(
-            modifier = GlanceModifier.fillMaxSize().padding(12.dp),
+            modifier = GlanceModifier
+                .fillMaxSize()
+                .padding(12.dp)
+                .clickable(actionStartActivity<MainActivity>()),
             verticalAlignment = Alignment.CenterVertically,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            // Cabecera: ticker a la izquierda, ↻ a la derecha
+            Row(
+                modifier = GlanceModifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    quote?.symbol ?: "ETF",
+                    modifier = GlanceModifier.defaultWeight(),   // empuja el ↻ a la derecha
+                    style = TextStyle(fontSize = 12.sp),
+                )
+                Text(
+                    "↻",
+                    modifier = GlanceModifier.clickable(actionRunCallback<RefreshAction>()),
+                    style = TextStyle(fontSize = 18.sp),
+                )
+            }
+
             if (quote == null) {
                 Text("Pulsa ↻ para cargar")
             } else {
@@ -46,15 +74,11 @@ class QuoteWidget : GlanceAppWidget() {
                 val precio = "%.2f".format(quote.price)
                 val pct = "%.2f".format(quote.changePct)
 
-                Text(quote.symbol, style = TextStyle(fontSize = 12.sp))
                 Text(
                     "$precio ${quote.currency}",
                     style = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.Bold),
                 )
-                Text(
-                    "$signo$pct %",
-                    style = TextStyle(color = ColorProvider(color)),
-                )
+                Text("$signo$pct %", style = TextStyle(color = ColorProvider(color)))
             }
         }
     }
