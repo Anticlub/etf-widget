@@ -8,6 +8,7 @@ data class Quote (
     val previousClose: Double,
     val marketTime: Long,
     val isMarketOpen: Boolean,
+    val intraday: List<Double> = emptyList(),   // serie del día para la sparkline
 ){
     val change: Double get() = price - previousClose
     val changePct: Double

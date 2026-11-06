@@ -34,6 +34,7 @@ class QuoteStore(private val context: Context) {
             prefs[PREV_CLOSE] = q.previousClose
             prefs[MARKET_TIME] = q.marketTime
             prefs[IS_OPEN] = q.isMarketOpen
+            prefs[INTRADAY] = q.intraday.joinToString(",")   // serie como "718.1,718.3,..."
             prefs.remove(ERROR)          // si hubo éxito, borramos el error anterior
         }
     }
@@ -49,6 +50,11 @@ class QuoteStore(private val context: Context) {
             previousClose = prefs[PREV_CLOSE] ?: 0.0,
             marketTime = prefs[MARKET_TIME] ?: 0L,
             isMarketOpen = prefs[IS_OPEN] ?: false,
+            intraday = prefs[INTRADAY]
+                ?.takeIf { it.isNotBlank() }
+                ?.split(",")
+                ?.mapNotNull { it.toDoubleOrNull() }
+                ?: emptyList(),
         )
     }
 
@@ -72,6 +78,7 @@ class QuoteStore(private val context: Context) {
         private val PREV_CLOSE = doublePreferencesKey("prev_close")
         private val MARKET_TIME = longPreferencesKey("market_time")
         private val IS_OPEN = booleanPreferencesKey("is_open")
+        private val INTRADAY = stringPreferencesKey("intraday")
         private val ERROR = stringPreferencesKey("error")
     }
 }
